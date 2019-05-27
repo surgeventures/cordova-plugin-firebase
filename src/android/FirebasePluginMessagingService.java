@@ -2,6 +2,7 @@ package org.apache.cordova.firebase;
 
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.media.AudioAttributes;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -93,6 +94,7 @@ public class FirebasePluginMessagingService extends FirebaseMessagingService {
         if (remoteMessage.getNotification() != null) {
             title = remoteMessage.getNotification().getTitle();
             text = remoteMessage.getNotification().getBody();
+            sound = remoteMessage.getNotification().getSound();
             id = remoteMessage.getMessageId();
         } else if (data != null) {
             title = data.get("title");
@@ -136,10 +138,51 @@ public class FirebasePluginMessagingService extends FirebaseMessagingService {
             Intent intent = new Intent(this, OnNotificationOpenReceiver.class);
             intent.putExtras(bundle);
             PendingIntent pendingIntent = PendingIntent.getBroadcast(this, id.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT);
+            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
             String channelId = this.getStringResource("default_notification_channel_id");
             String channelName = this.getStringResource("default_notification_channel_name");
-            Uri defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+
+            Uri soundPath = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+            int lightArgb = 0;
+
+            // Since android Oreo notification channel is needed.
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                if (sound != null) {
+                    channelId = TAG + getPackageName() + sound; // Create one for the app + sound combo, don't use default.
+                    channelName = "Sound-" + sound;
+                }
+
+                List<NotificationChannel> channels = notificationManager.getNotificationChannels();
+
+                NotificationChannel channel = null;
+                for (int i = 0; i < channels.size(); i++) {
+                    if (channelId.equals(channels.get(i).getId())) {
+                        channel = channels.get(i);
+                    }
+                }
+
+                if (channel != null) {
+                    channel = new NotificationChannel(channelId, channelName, NotificationManager.IMPORTANCE_HIGH);
+
+                    if (sound != null) {
+                        soundPath = Uri.parse(ContentResolver.SCHEME_ANDROID_RESOURCE + "://" + getPackageName() + "/raw/" + sound);
+                        AudioAttributes att = new AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_ALARM)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                .build();
+                        channel.setSound(soundPath, att);
+                    }
+
+                    channel.setShowBadge(true);
+                    channel.enableLights(true);
+                    channel.enableVibration(true);
+                    if (lights != null) {
+                        channel.setLightColor(lightArgb);
+                    }
+                    notificationManager.createNotificationChannel(channel);
+                }
+            }
 
             NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this, channelId);
             notificationBuilder
@@ -148,7 +191,7 @@ public class FirebasePluginMessagingService extends FirebaseMessagingService {
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                     .setStyle(new NotificationCompat.BigTextStyle().bigText(messageBody))
                     .setAutoCancel(true)
-                    .setSound(defaultSoundUri)
+                    .setSound(soundPath)
                     .setContentIntent(pendingIntent)
                     .setPriority(NotificationCompat.PRIORITY_MAX);
 
@@ -159,27 +202,28 @@ public class FirebasePluginMessagingService extends FirebaseMessagingService {
                 notificationBuilder.setSmallIcon(getApplicationInfo().icon);
             }
 
-            if (sound != null) {
-                Log.d(TAG, "sound before path is: " + sound);
-                Uri soundPath = Uri.parse(ContentResolver.SCHEME_ANDROID_RESOURCE + "://" + getPackageName() + "/raw/" + sound);
-                Log.d(TAG, "Parsed sound is: " + soundPath.toString());
-                notificationBuilder.setSound(soundPath);
-            } else {
-                Log.d(TAG, "Sound was null ");
-            }
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) {
+                if (sound != null) {
+                    Log.d(TAG, "sound before path is: " + sound);
+                    soundPath = Uri.parse(ContentResolver.SCHEME_ANDROID_RESOURCE + "://" + getPackageName() + "/raw/" + sound);
+                    Log.d(TAG, "Parsed sound is: " + soundPath.toString());
+                    notificationBuilder.setSound(soundPath);
+                } else {
+                    Log.d(TAG, "Sound was null ");
+                }
 
-            int lightArgb = 0;
-            if (lights != null) {
-                try {
-                    String[] lightsComponents = lights.replaceAll("\\s", "").split(",");
-                    if (lightsComponents.length == 3) {
-                        lightArgb = Color.parseColor(lightsComponents[0]);
-                        int lightOnMs = Integer.parseInt(lightsComponents[1]);
-                        int lightOffMs = Integer.parseInt(lightsComponents[2]);
+                if (lights != null) {
+                    try {
+                        String[] lightsComponents = lights.replaceAll("\\s", "").split(",");
+                        if (lightsComponents.length == 3) {
+                            lightArgb = Color.parseColor(lightsComponents[0]);
+                            int lightOnMs = Integer.parseInt(lightsComponents[1]);
+                            int lightOffMs = Integer.parseInt(lightsComponents[2]);
 
-                        notificationBuilder.setLights(lightArgb, lightOnMs, lightOffMs);
+                            notificationBuilder.setLights(lightArgb, lightOnMs, lightOffMs);
+                        }
+                    } catch (Exception e) {
                     }
-                } catch (Exception e) {
                 }
             }
 
@@ -194,30 +238,6 @@ public class FirebasePluginMessagingService extends FirebaseMessagingService {
                 int notiID = getResources().getIdentifier("notification_big", "drawable", getPackageName());
                 if (notification.contentView != null) {
                     notification.contentView.setImageViewResource(iconID, notiID);
-                }
-            }
-            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-
-            // Since android Oreo notification channel is needed.
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                List<NotificationChannel> channels = notificationManager.getNotificationChannels();
-
-                boolean channelExists = false;
-                for (int i = 0; i < channels.size(); i++) {
-                    if (channelId.equals(channels.get(i).getId())) {
-                        channelExists = true;
-                    }
-                }
-
-                if (!channelExists) {
-                    NotificationChannel channel = new NotificationChannel(channelId, channelName, NotificationManager.IMPORTANCE_HIGH);
-                    channel.enableLights(true);
-                    channel.enableVibration(true);
-                    channel.setShowBadge(true);
-                    if (lights != null) {
-                        channel.setLightColor(lightArgb);
-                    }
-                    notificationManager.createNotificationChannel(channel);
                 }
             }
 
