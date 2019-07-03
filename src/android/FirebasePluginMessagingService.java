@@ -149,8 +149,7 @@ public class FirebasePluginMessagingService extends FirebaseMessagingService {
             // Since android Oreo notification channel is needed.
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 if (sound != null) {
-                    channelId = TAG + getPackageName() + sound; // Create one for the app + sound combo, don't use default.
-                    channelName = "Sound-" + sound;
+                    channelId = getPackageName() + "." + sound;
                 }
 
                 List<NotificationChannel> channels = notificationManager.getNotificationChannels();
@@ -162,7 +161,7 @@ public class FirebasePluginMessagingService extends FirebaseMessagingService {
                     }
                 }
 
-                if (channel != null) {
+                if (channel == null) {
                     channel = new NotificationChannel(channelId, channelName, NotificationManager.IMPORTANCE_HIGH);
 
                     if (sound != null) {
